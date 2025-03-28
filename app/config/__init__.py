@@ -16,7 +16,7 @@ class Settings(BaseSettings):
         env_file='.env',
         env_file_encoding='utf-8',
         case_sensitive=False,
-        env_prefix=''  # This ensures no prefix is added to env var names
+        env_prefix=''
     )
 
 @lru_cache()
@@ -24,3 +24,5 @@ def get_settings() -> Settings:
     return Settings()
 
 settings = get_settings()
+
+__all__ = ['settings']
