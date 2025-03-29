@@ -71,3 +71,6 @@ npm-debug.log*
 # System Files
 .DS_Store
 Thumbs.db
+
+test_user_id.txt
+token.txt
