@@ -2,9 +2,10 @@
 
 <div align="center">
 
-![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
-![Python](https://img.shields.io-badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+[![Python](https://img.shields.io/badge/python-3.10-blue.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.103.1-009688.svg?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Pytest](https://img.shields.io/badge/pytest-8.0.0-red.svg?style=flat-square&logo=pytest&logoColor=white)](https://docs.pytest.org)
+
 
 </div>
 
