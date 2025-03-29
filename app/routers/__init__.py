@@ -1,3 +1,1 @@
-from . import auth_router, company_router, document_router, subscription_router
-
-__all__ = ['auth_router', 'company_router', 'document_router', 'subscription_router']
+# This file can be empty, but it should exist to make the directory a proper Python package

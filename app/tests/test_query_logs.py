@@ -4,8 +4,10 @@ import pytest
 from datetime import datetime
 from uuid import uuid4
 from app.config.database import get_supabase_client
+from passlib.context import CryptContext  # Add this import
 
 client = TestClient(app)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # Create password context
 
 class TestData:
     log_id = None
@@ -25,7 +27,7 @@ def test_user_token(setup_company):
         "email": email,
         "full_name": "Test Logs User",
         "role": "user",
-        "hashed_password": password,
+        "hashed_password": pwd_context.hash(password),  # Hash the password properly
         "company_id": setup_company,
         "created_at": datetime.utcnow().isoformat(),
         "is_active": True

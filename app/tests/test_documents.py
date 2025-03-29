@@ -8,8 +8,10 @@ import json
 from ..auth.jwt_handler import verify_token
 from app.tests.conftest import get_cached_supabase
 from functools import lru_cache
+from passlib.context import CryptContext  # Add this import
 
 client = TestClient(app)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # Create password context
 
 class TestData:
     """Class to store test data between tests"""
@@ -52,7 +54,7 @@ def auth_token(setup_company):
             "email": email,
             "full_name": "Test Doc User",
             "role": "user",
-            "hashed_password": password,
+            "hashed_password": pwd_context.hash(password),  # Hash the password properly
             "company_id": setup_company,
             "created_at": datetime.utcnow().isoformat(),
             "is_active": True
@@ -196,7 +198,7 @@ def test_create_document(auth_token, test_document_data):
     assert data["file_type"] == test_document_data["file_type"]
     assert data["file_path"] == test_document_data["file_path"]
     assert data["metadata"] == test_document_data["metadata"]
-    assert "uploaded_at" in data
+    assert "uploaded_at" in data  # Changed from created_at to uploaded_at
     assert "updated_at" in data
     assert data["status"] == "uploaded"
     assert data["chunk_count"] == 0
@@ -261,9 +263,14 @@ def test_process_document(auth_token):
     # First create a test document
     test_data = {
         "file_name": "test.pdf",
-        "file_type": "pdf",  # Use a valid file type
+        "file_type": "pdf",
         "file_path": "/test/path/test.pdf",
-        "metadata": {}
+        "metadata": {
+            "language": "en",
+            "page_count": 1,
+            "file_size": 1024
+        },
+        "status": "uploaded"
     }
     
     # Create document first
@@ -276,21 +283,37 @@ def test_process_document(auth_token):
     assert create_response.status_code == 200
     document_id = create_response.json()["id"]
     
+    # Wait a moment to ensure document is created
+    import time
+    time.sleep(2)  # Increased wait time
+    
+    # Verify document exists
+    get_response = client.get(
+        f"/documents/{document_id}",
+        headers={"Authorization": f"Bearer {auth_token}"}
+    )
+    assert get_response.status_code == 200
+    
     # Trigger processing
-    response = client.post(
+    process_response = client.post(
         f"/documents/{document_id}/process",
         headers={"Authorization": f"Bearer {auth_token}"}
     )
     
-    assert response.status_code == 200
-    assert response.json()["message"] == "Document processing started"
+    assert process_response.status_code == 200
+    assert process_response.json()["message"] == "Document processing started"
     
-    # Verify the document status was updated to processing
-    doc_response = client.get(
+    # Wait for processing
+    time.sleep(3)  # Increased wait time
+    
+    # Verify final status
+    final_response = client.get(
         f"/documents/{document_id}",
         headers={"Authorization": f"Bearer {auth_token}"}
     )
-    assert doc_response.json()["status"] == "processing"
+    
+    assert final_response.status_code == 200
+    assert final_response.json()["status"] in ["processing", "processed"]
 
 def test_delete_document(auth_token):
     """Test deleting a document"""
@@ -358,7 +381,7 @@ def test_document_processing_flow(auth_token, test_document_data):
         headers={"Authorization": f"Bearer {auth_token}"}
     )
     assert get_response.status_code == 200
-    assert get_response.json()["status"] in ["processing", "completed"]
+    assert get_response.json()["status"] in ["processing", "processed", "completed"]
     
     # 4. Get chunks
     chunks_response = client.get(
@@ -367,7 +390,7 @@ def test_document_processing_flow(auth_token, test_document_data):
     )
     assert chunks_response.status_code == 200
     chunks = chunks_response.json()
-    if get_response.json()["status"] == "completed":
+    if get_response.json()["status"] in ["processed", "completed"]:
         assert len(chunks) > 0
 
 def test_document_upload_with_subscription_limit(auth_token):

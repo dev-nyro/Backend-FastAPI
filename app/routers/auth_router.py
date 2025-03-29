@@ -6,6 +6,7 @@ from ..models.user_model import User, UserAuth, Token, UserCreate  # Added UserC
 from ..config.database import get_supabase_client
 from ..auth.auth_middleware import auth_middleware
 from uuid import UUID
+from passlib.context import CryptContext
 
 router = APIRouter(
     prefix="/auth",
@@ -15,8 +16,24 @@ router = APIRouter(
 # Fix the tokenUrl to match the full path
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """
+    Autenticación de usuario
+    
+    ### Descripción
+    Autentica un usuario y retorna un token JWT.
+    
+    ### Parámetros
+    - **username**: Email del usuario
+    - **password**: Contraseña del usuario
+    
+    ### Retorna
+    - **access_token**: Token JWT para autenticación
+    - **token_type**: Tipo de token (bearer)
+    """
     supabase = get_supabase_client(use_service_role=True)
     
     try:
@@ -34,8 +51,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         user = user_query.data[0]
         print(f"Found user data: {user}")  # Debug info
         
-        if user['hashed_password'] != form_data.password:
-            print("Password mismatch")  # Debug info
+        # Verify password using pwd_context
+        if not pwd_context.verify(form_data.password, user['hashed_password']):
+            print("Password verification failed")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect email or password",
@@ -79,6 +97,22 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
+    """
+    Registro de nuevo usuario
+    
+    ### Descripción
+    Crea un nuevo usuario en el sistema y retorna un token JWT.
+    
+    ### Parámetros
+    - **email**: Email del usuario
+    - **password**: Contraseña del usuario
+    - **full_name**: Nombre completo
+    - **company_id**: ID de la empresa (opcional)
+    
+    ### Retorna
+    - **access_token**: Token JWT para autenticación
+    - **token_type**: Tipo de token (bearer)
+    """
     supabase = get_supabase_client(use_service_role=True)  # Changed to use service role
     
     try:
@@ -101,7 +135,7 @@ async def register(user_data: UserCreate):
         # Create new user with service role
         new_user = {
             "email": user_data.email,
-            "hashed_password": user_data.password,
+            "hashed_password": pwd_context.hash(user_data.password),  # Hash the password properly
             "full_name": user_data.full_name,
             "role": user_data.role,
             "company_id": str(user_data.company_id),
@@ -127,7 +161,8 @@ async def register(user_data: UserCreate):
             data={
                 "sub": user['email'],
                 "user_id": user['id'],
-                "company_id": str(user['company_id'])
+                "company_id": str(user['company_id']),
+                "role": user['role']  # Include role in token
             },
             expires_delta=access_token_expires
         )

@@ -6,11 +6,15 @@ from uuid import UUID
 class QueryLogBase(BaseModel):
     query: str
     response: Optional[str] = None
-    relevance_score: Optional[float] = None
     metadata: Dict[str, Any] = {}
 
-class QueryLogCreate(QueryLogBase):
-    pass
+class QueryLogCreate(BaseModel):
+    query: str
+    response: str
+    metadata: Dict[str, Any] = {}
+    # These will be filled from the token
+    company_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
 
 class QueryLogUpdate(BaseModel):
     response: Optional[str] = None

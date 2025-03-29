@@ -1,209 +1,121 @@
 from typing import List, Dict, Any
-import re
-from uuid import UUID
-from ..config.database import get_supabase_client
+import json
 from datetime import datetime
-import os
-
-class ProcessingError(Exception):
-    """Custom error for document processing"""
-    pass
+import uuid
+from ..config.database import get_supabase_client
+import PyPDF2
+import io
 
 class DocumentProcessor:
-    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self._client = None
+    def __init__(self):
+        self.supabase = get_supabase_client(use_service_role=True)
 
-    @property
-    def client(self):
-        if not self._client:
-            self._client = get_supabase_client(use_service_role=True)
-        return self._client
+    def extract_text_from_pdf(self, file_content: bytes) -> str:
+        """Extract text from PDF file"""
+        pdf_file = io.BytesIO(file_content)
+        reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text
 
-    async def process_document(self, document_id: UUID) -> bool:
-        """Process a document through the complete pipeline"""
-        try:
-            # Get document first before updating status
-            document = await self._get_document(document_id)
-            if not document:
-                return False
-
-            # Check file type before updating status
-            file_type = document.get('file_type', '').lower()
-            if file_type == 'xyz':
-                await self._update_document_status(
-                    document_id, 
-                    "error",
-                    error_message="Invalid file type",
-                    metadata={"error": "Invalid file type"}
-                )
-                return False
-
-            # Update status to processing
-            await self._update_document_status(document_id, "processing")
-
-            # Remove sleep delay in testing environment
-            if not os.getenv('PYTEST_CURRENT_TEST'):
-                import asyncio
-                await asyncio.sleep(0.5)
-
-            return True
-
-        except Exception as e:
-            await self._update_document_status(
-                document_id, 
-                "error",
-                error_message=str(e),
-                metadata={"error": str(e)}
-            )
-            return False
-
-    async def _get_document(self, document_id: UUID) -> Dict[str, Any]:
-        """Retrieve document from database"""
-        response = self.client.table('documents')\
-            .select("*")\
-            .eq('id', str(document_id))\
-            .single()\
-            .execute()
-        return response.data if response.data else None
-
-    async def _extract_text(self, document: Dict[str, Any]) -> str:
-        """Extract text from document based on file type"""
-        try:
-            supabase = get_supabase_client(use_service_role=True)
-            storage_path = document.get('storage_path')
-            
-            if not storage_path:
-                raise ValueError("No storage path found")
-
-            # Download file from storage
-            file_data = supabase.storage.from_('documents').download(storage_path)
-            
-            file_type = document.get('file_type', '').lower()
-            
-            if file_type == 'pdf':
-                # Implementar extracción PDF
-                from pypdf import PdfReader
-                from io import BytesIO
-                
-                reader = PdfReader(BytesIO(file_data))
-                text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-                return text
-                
-            elif file_type in ['docx', 'doc']:
-                # Implementar extracción Word
-                from docx import Document
-                from io import BytesIO
-                
-                doc = Document(BytesIO(file_data))
-                return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-                
-            else:
-                return "Formato no soportado"
-                
-        except Exception as e:
-            print(f"Error extracting text: {str(e)}")
-            raise
-
-    def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
-        """Split text into chunks with metadata"""
+    def create_chunks(self, text: str, chunk_size: int = 1000) -> List[str]:
+        """Split text into chunks using a simple approach"""
+        words = text.split()
         chunks = []
-        start = 0
-        chunk_index = 0
-
-        while start < len(text):
-            # Get chunk with overlap
-            end = start + self.chunk_size
-            chunk_text = text[start:end]
+        current_chunk = []
+        current_length = 0
+        
+        for word in words:
+            word_len = len(word) + 1  # +1 for space
+            if current_length + word_len > chunk_size and current_chunk:
+                chunks.append(' '.join(current_chunk))
+                current_chunk = []
+                current_length = 0
+            current_chunk.append(word)
+            current_length += word_len
             
-            # Create chunk with metadata
-            chunk = {
-                "chunk_index": chunk_index,
-                "content": chunk_text,
-                "metadata": {
-                    "start_char": start,
-                    "end_char": end,
-                    "length": len(chunk_text)
-                }
-            }
+        if current_chunk:
+            chunks.append(' '.join(current_chunk))
             
-            chunks.append(chunk)
-            
-            # Move start position considering overlap
-            start = end - self.chunk_overlap
-            chunk_index += 1
-
         return chunks
 
-    async def _save_chunks(self, document_id: UUID, chunks: List[Dict[str, Any]]):
-        """Save chunks to database"""
-        for chunk in chunks:
-            chunk_data = {
-                "document_id": str(document_id),
-                "chunk_index": chunk["chunk_index"],
-                "content": chunk["content"],
-                "metadata": chunk["metadata"],
-                "created_at": datetime.utcnow().isoformat()
-            }
-            
-            self.client.table('document_chunks')\
-                .insert(chunk_data)\
-                .execute()
-
-    async def _update_document_status(
-        self, 
-        document_id: UUID, 
-        status: str,
-        error_message: str = None,
-        metadata: dict = None
-    ):
-        """Update document processing status"""
-        update_data = {
-            "status": status,
-            "updated_at": datetime.utcnow().isoformat()
-        }
-        
-        if metadata:
-            update_data["metadata"] = metadata
-            
-        if error_message:
-            if "metadata" not in update_data:
-                update_data["metadata"] = {}
-            update_data["metadata"]["error"] = error_message
-
-        self.client.table('documents')\
-            .update(update_data)\
-            .eq('id', str(document_id))\
-            .execute()
-
-    async def _handle_processing_error(
-        self,
-        document_id: UUID,
-        error: Exception,
-        stage: str
-    ):
-        """Handle processing errors and update document status"""
+    async def process_document(self, document_id: str):
+        """Process a document"""
+        print(f"Starting to process document: {document_id}")
         try:
-            error_message = f"Error in {stage}: {str(error)}"
-            update_data = {
-                "status": "error",
-                "metadata": {
-                    "error_message": error_message,
-                    "error_stage": stage,
-                    "error_timestamp": datetime.utcnow().isoformat()
-                },
-                "updated_at": datetime.utcnow().isoformat()
-            }
-            
-            self.client.table('documents')\
-                .update(update_data)\
-                .eq('id', str(document_id))\
+            # Get the document
+            response = self.supabase.table('documents')\
+                .select('*')\
+                .eq('id', document_id)\
                 .execute()
-        except Exception as e:
-            print(f"Error updating document status: {e}")
 
-# Crear instancia global
+            if not response.data:
+                raise Exception(f"Document {document_id} not found")
+
+            document = response.data[0]
+
+            # Get file content from storage
+            storage_response = self.supabase\
+                .storage\
+                .from_('documents')\
+                .download(document['file_path'])
+
+            # Extract text based on file type
+            text = ""
+            if document['file_type'].lower() == 'pdf':
+                text = self.extract_text_from_pdf(storage_response)
+            else:
+                # Add support for other file types as needed
+                raise Exception(f"Unsupported file type: {document['file_type']}")
+
+            # Create chunks
+            chunks = self.create_chunks(text)
+            
+            # Create chunk records
+            chunk_records = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "document_id": document_id,
+                    "chunk_index": idx,
+                    "content": chunk,
+                    "metadata": {"page": 1},  # Simplified for MVP
+                    "embedding_id": None,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "vector_status": "pending"
+                }
+                for idx, chunk in enumerate(chunks)
+            ]
+
+            # Insert chunks in batches of 50
+            for i in range(0, len(chunk_records), 50):
+                batch = chunk_records[i:i + 50]
+                self.supabase.table('document_chunks').insert(batch).execute()
+
+            # Update document status
+            update_data = {
+                "status": "processed",
+                "updated_at": datetime.utcnow().isoformat(),
+                "chunk_count": len(chunks)
+            }
+
+            self.supabase.table('documents')\
+                .update(update_data)\
+                .eq('id', document_id)\
+                .execute()
+
+            return {"status": "success", "message": "Document processed successfully"}
+
+        except Exception as e:
+            print(f"Error processing document {document_id}: {str(e)}")
+            self.supabase.table('documents')\
+                .update({
+                    "status": "failed",
+                    "updated_at": datetime.utcnow().isoformat()
+                })\
+                .eq('id', document_id)\
+                .execute()
+            raise e
+
+# Singleton instance
 document_processor = DocumentProcessor()

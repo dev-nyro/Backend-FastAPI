@@ -8,9 +8,11 @@ import pytz
 from functools import lru_cache
 from supabase import create_client
 import httpx
-from app.config import settings  # Add this import
+from app.config import settings
+from passlib.context import CryptContext
 
 client = TestClient(app)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")  # Create at module level
 
 @pytest.fixture(autouse=True, scope="session")
 def cleanup_test_data():
@@ -177,33 +179,37 @@ def admin_token(setup_company):
     """Create an admin user and get token"""
     supabase = get_cached_supabase()
     
-    admin_email = f"admin_test_{uuid4()}@example.com"  # Make unique
+    # Test credentials
+    admin_email = "admin@test.com"
     admin_password = "adminpass123"
     
-    admin_data = {
-        "email": admin_email,
-        "hashed_password": admin_password,
-        "full_name": "Test Admin",
-        "role": "admin",
-        "company_id": setup_company,
-        "created_at": datetime.utcnow().isoformat(),
-        "is_active": True
-    }
-    
     try:
-        # Delete any existing user first
-        existing = supabase.table('users').select("*").eq('email', admin_email).execute()
-        if existing.data:
-            supabase.table('users').delete().eq('email', admin_email).execute()
+        # Clean up existing user if exists
+        print(f"Cleaning up existing admin user: {admin_email}")
+        supabase.table('users').delete().eq('email', admin_email).execute()
         
-        # Create new admin user
+        # Create new admin user with properly hashed password
+        hashed_password = pwd_context.hash(admin_password)
+        
+        admin_data = {
+            "email": admin_email,
+            "hashed_password": hashed_password,  # Use the hashed password
+            "full_name": "Test Admin",
+            "role": "admin",
+            "company_id": setup_company,
+            "created_at": datetime.utcnow().isoformat(),
+            "is_active": True
+        }
+        
+        print(f"Creating admin user: {admin_email}")
         response = supabase.table('users').insert(admin_data).execute()
+        
         if not response.data:
             raise Exception("Failed to create admin user")
+            
+        print(f"Admin user created successfully")
         
-        print(f"Created admin user with email: {admin_email}")
-        
-        # Get token
+        # Now get the token by making a login request
         login_response = client.post(
             "/auth/login",
             data={
@@ -213,9 +219,9 @@ def admin_token(setup_company):
         )
         
         if login_response.status_code != 200:
-            print(f"Admin login response: {login_response.json()}")
-            raise Exception(f"Failed to get admin token: {login_response.json()}")
-        
+            print(f"Login failed: {login_response.json()}")
+            raise Exception("Failed to get admin token")
+            
         return login_response.json()["access_token"]
         
     except Exception as e:

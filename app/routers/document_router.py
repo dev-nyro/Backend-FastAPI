@@ -11,7 +11,8 @@ from uuid import UUID
 import pytz
 
 router = APIRouter(
-    tags=["Documents"],
+    prefix="/documents",
+    tags=["Documents"],  # Capitalize to be consistent with other routers
     dependencies=[Depends(auth_middleware)]
 )
 
@@ -61,7 +62,25 @@ async def upload_document(
     file: UploadFile = File(...),
     metadata: Optional[Dict[str, Any]] = None
 ):
-    """Upload a new document and store in Supabase Storage"""
+    """
+    Subida de documento
+    
+    ### Descripción
+    Sube un nuevo documento y lo almacena en Supabase Storage.
+    
+    ### Parámetros
+    - **file**: Archivo a subir (PDF)
+    - **metadata**: Metadatos adicionales del documento (opcional)
+    
+    ### Proceso
+    1. Valida el archivo
+    2. Sube a Supabase Storage
+    3. Crea registro en base de datos
+    4. Inicia procesamiento en segundo plano
+    
+    ### Retorna
+    - Objeto Document con los detalles del documento creado
+    """
     user = request.state.user
     company_id = user.get('company_id')
     
@@ -238,7 +257,23 @@ async def process_document(
     request: Request,
     background_tasks: BackgroundTasks
 ):
-    """Trigger document processing (OCR, chunking, etc.)"""
+    """
+    Procesar documento
+    
+    ### Descripción
+    Inicia el pipeline de procesamiento de un documento.
+    
+    ### Etapas
+    1. Extracción de texto
+    2. Segmentación en chunks
+    3. Generación de embeddings
+    
+    ### Parámetros
+    - **document_id**: ID del documento a procesar
+    
+    ### Retorna
+    - Estado del procesamiento iniciado
+    """
     user = request.state.user
     company_id = user.get('company_id')
     
@@ -259,13 +294,9 @@ async def process_document(
         # First check file type before doing anything else
         file_type = document.data.get('file_type', '').lower()
         if file_type == 'xyz':
-            # Return 400 immediately for invalid file type
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid file type"
-            )
+            raise HTTPException(status_code=400, detail="Invalid file type")
 
-        # Update status to processing only if file type is valid
+        # Update status to processing
         update_data = {
             "status": "processing",
             "updated_at": datetime.utcnow().isoformat()
@@ -276,10 +307,10 @@ async def process_document(
             .eq('id', str(document_id))\
             .execute()
 
-        # Add processing task only if file type is valid
+        # Add background task with string ID
         background_tasks.add_task(
             document_processor.process_document,
-            document_id
+            str(document_id)  # Convert UUID to string
         )
         
         return {"message": "Document processing started"}

@@ -20,12 +20,12 @@ async def create_query_log(log: QueryLogCreate, request: Request):
     try:
         supabase = get_supabase_client(use_service_role=True)
         
+        # Remove relevance_score since it's not in QueryLogCreate
         log_data = {
             "user_id": user.get('user_id'),
             "company_id": user.get('company_id'),
             "query": log.query,
             "response": log.response,
-            "relevance_score": log.relevance_score,
             "metadata": log.metadata,
             "created_at": datetime.utcnow().isoformat()
         }

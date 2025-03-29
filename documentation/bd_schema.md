@@ -49,8 +49,8 @@ MD PARA LLMS:
 - `content` (text): Texto del chunk.
 - `metadata` (jsonb): Info adicional (página, idioma, etc.).
 - `embedding_id` (string): ID en Milvus (opcional).
-- `embedding_vector` (float[]): Vector en pgvector (opcional).
 - `created_at` (timestamp): Fecha de creación.
+- 'vector_status' (vachar) : estado del vector creo. 
 
 ### QUERY_LOGS
 - `id` (UUID, PK): ID del log.
